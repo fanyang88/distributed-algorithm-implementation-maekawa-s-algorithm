@@ -1,3 +1,7 @@
+This algorithm is simulated by Disalgo which is based on python, and through defining a series of functions for sending 
+and receiving message from one site to another.It takes N processes and R requests for each processes, and mutual 
+exclusion is guaranteed while accessing the CS.
+
 To implement maekawa's algorithm, I defined three queues. One is waiting queue which collects the requests from other 
 site. The second is locking queue which collects the locks send from other sites. The third is the FailMsg queue which 
 collects the Fail message sending from other sites.
