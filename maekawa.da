@@ -1,0 +1,183 @@
+from operator import itemgetter
+
+class Maekawa(DistProcess):
+     
+   def setup(ps, R, quota):
+        ts= None
+        LockMsgQue= []
+        WaitingQue= []
+        FailMsgQue= []
+        INQsent = False
+        cur_locking_request = None
+        in_cs= False
+        ReleSent = False
+        Locked= False
+        req_quota = quota
+        s=ps
+        item = None
+        
+   def cs(task):
+       # to enter cs, enque and send request to all, then await replies from all
+         --start
+         ts= logical_clock()
+         #output("Is requesting.")
+         for item in R:
+               send(Request(ts, self), item)
+         
+         --wait
+         await(len(LockMsgQue)>=len(R))
+         in_cs= True
+                  
+         --cs     
+          
+         task()
+         work() 
+          
+
+       # to exit cs
+         --release  
+         in_cs= False 
+         output("Is releasing.") 
+         for item in R:
+               send(Release(self), item)
+         
+
+         --end
+         LockMsgQue= []
+         FailMsgQue= []
+         INQsent = False
+         cur_locking_request = None
+         ReleSent = False
+         Locked= False
+
+         
+   def main():
+          def anounce():
+               output("In cs!")
+          
+          i=0      
+          while i< req_quota:
+               cs(anounce)
+               i+=1
+          print(i)
+          await(False)  
+
+          
+     # when receiving requests from others, enque and reply     
+   def OnRequest(ts_j, pj):
+       if(cur_locking_request == None):
+           send(Lock(self), pj)
+           cur_locking_request = (pj, ts_j)
+           Locked = True
+
+       else:    
+           WaitingQue.append((pj,ts_j))  #in order
+           sorted(WaitingQue, key=itemgetter(1))
+           item= WaitingQue[0]
+           if(ts_j > cur_locking_request[1] or ts_j >item[1]):
+                send(Fail(self), pj)
+           else:
+                if(INQsent == False):
+                   send(Inquire(self), cur_locking_request[0])
+                   INQsent = True
+
+   def OnRelease(pj):
+         if(len(WaitingQue)>0):
+               (proc, value)= WaitingQue.pop(0)
+               Locked = True
+               cur_locking_request= (proc, value)
+               send(Lock(self), proc)
+         else:
+               Locked = False 
+               cur_locking_request= None
+
+   def OnFail(pj):
+         FailMsgQue.append((pj))
+
+   def OnLock(pj):
+         LockMsgQue.append((pj))
+
+
+   def OnInquire(pj):
+        if(ReleSent == False):
+           count= len(FailMsgQue)
+           if(count>0):
+               send(Relinquish(self), pj)
+               #for proc in FailMsgQue:
+               for proc in R:
+                   if proc in LockMsgQue:
+                      LockMsgQue.remove(proc)
+           if(count==0 and len(LockMsgQue)>= len(R)):
+                if(in_cs == False):
+                   send(Release(self), pj)
+                   ReleSent= True
+
+   def OnRelinquish(pj): 
+          Locked =False
+          (proc, value)=cur_locking_request
+          cur_locking_request= WaitingQue.pop(0)
+          WaitingQue.append((proc, value))
+          sorted(WaitingQue, key=itemgetter(1))
+          Locked= True
+          send(Lock(self), cur_locking_request[0])
+             
+import random
+
+def random_samples(n,total):
+
+        dividers = sorted(random.sample(range(1,total),n-1))
+        return [a - b for a, b in zip(dividers + [total], [0] + dividers)]
+
+
+def main():
+     # configuration: number of processes
+     # create n process
+
+     #n = int(sys.argv[1]) if len(sys.argv) > 1 else 7
+     #request_total = int(sys.argv[2]) if len(sys.argv) >2 else 7
+     n= int(input("number of sites: "))
+     #n = int(sys.argv[1]) if len(sys.argv) > 1 else 7
+     request_total = int(input("total number of requests for all sites: "))
+     
+     #lists= [[() for x in range(3)] for y in range(7)]
+     lists= [[] for y in range(n)]
+     
+     ps = createprocs(Maekawa, n)
+     #request number for each process
+     request_quota = random_samples(n,request_total);
+     
+     
+     if n==7:
+              para=[[0,3,5], [0,1,4], [0,2,6], [1,3,6], [2,3,4],[1,2,5],[4,5,6]]
+              k=0
+              for p in ps:
+                lists[para[k][0]].append((p))
+                lists[para[k][1]].append((p))
+                lists[para[k][2]].append((p))
+                k = k+1
+     elif n==3:
+              para=[[0,2], [0,1], [1,2]]
+              k=0
+              for p in ps:
+                lists[para[k][0]].append((p))
+                lists[para[k][1]].append((p))
+                k = k+1
+     elif n==13:
+              para=[[0,4,7,10], [0,1,5,6], [0,9,2,8], [0,12,3,11], [4,1,9,12],[4,5,2,3],[4,6,8,11],[7,1,2,11],[7,5,8,12],[7,6,9,3],[10,8,3,1],[10,5,9,11],[10,6,2,12]]
+              k=0
+              for p in ps:
+                lists[para[k][0]].append((p))
+                lists[para[k][1]].append((p))
+                lists[para[k][0]].append((p))
+                lists[para[k][1]].append((p))
+                k = k+1
+     else:
+             return;
+     
+  
+     for p,quota,item in zip(ps,request_quota, lists):
+        # print("site:",p, "-quorum:", item)
+         setupprocs([p], [ps-{p},item,quota])
+         
+     startprocs(ps)
+     for p in ps: p.join()
